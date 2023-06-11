@@ -1,3 +1,7 @@
+4.2.1 / 2018-05-22
+==================
+
+  * improve: error messages now include info about the causing middleware and mw-stack
 
 4.1.0 / 2018-05-22
 ==================
