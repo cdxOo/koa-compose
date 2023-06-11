@@ -23,16 +23,11 @@ module.exports = compose
 function compose (middleware) {
   if (!Array.isArray(middleware)) throw new TypeError('Middleware stack must be an array!')
   for (const [ ix, fn ] of middleware.entries()) {
-
     if (typeof fn !== 'function') {
-      var stackdebug = util.format(
-        [ ...middleware.entries() ].map(([ ix, fn ]) => ({ [ix]: fn }))
-      );
       var msg = (
-        `Middleware must be composed of functions!`
-        + `\n\tMiddleware Index: ${ix}`
-        + `\n\tMiddleware List: ${stackdebug}`
-      );
+        'Middleware must be composed of functions!'
+        + formatExtraErrorInfo(middleware, ix)
+      )
       throw new TypeError(msg);
     }
   }
@@ -48,7 +43,12 @@ function compose (middleware) {
     let index = -1
     return dispatch(0)
     function dispatch (i) {
-      if (i <= index) return Promise.reject(new Error('next() called multiple times'))
+      if (i <= index) {
+        return Promise.reject(new Error(
+          'next() called multiple times'
+          + formatExtraErrorInfo(middleware, index-1)
+        ))
+      }
       index = i
       let fn = middleware[i]
       if (i === middleware.length) fn = next
@@ -60,4 +60,24 @@ function compose (middleware) {
       }
     }
   }
+}
+
+function formatExtraErrorInfo (middleware, index) {
+  var fn = middleware[index]
+  return (
+    ` {\n\tMiddleware: "${fndebug(fn)}"`
+    + `\n\tMiddleware Index: ${index}`
+    + `\n\tMiddleware List: ${stackdebug(middleware)}`
+    + `\n}`
+  )
+}
+
+function fndebug (fn) {
+  return util.format(fn)
+}
+
+function stackdebug (middleware) {
+  return util.format(
+    [ ...middleware.entries() ].map(([ ix, fn ]) => ({ [ix]: fn }))
+  )
 }
