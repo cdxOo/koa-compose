@@ -1,7 +1,10 @@
 {
-  "name": "koa-compose",
+  "name": "@cdxoo/koa-compose",
   "description": "compose Koa middleware",
-  "repository": "koajs/compose",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cdxOo/koa-compose.git"
+  },
   "version": "4.2.0",
   "keywords": [
     "koa",
