@@ -1,4 +1,8 @@
 'use strict'
+/**
+  * vim: set shiftwidth=2
+  */
+var util = require('util');
 
 /**
  * Expose compositor.
@@ -18,8 +22,19 @@ module.exports = compose
 
 function compose (middleware) {
   if (!Array.isArray(middleware)) throw new TypeError('Middleware stack must be an array!')
-  for (const fn of middleware) {
-    if (typeof fn !== 'function') throw new TypeError('Middleware must be composed of functions!')
+  for (const [ ix, fn ] of middleware.entries()) {
+
+    if (typeof fn !== 'function') {
+      var stackdebug = util.format(
+        [ ...middleware.entries() ].map(([ ix, fn ]) => ({ [ix]: fn }))
+      );
+      var msg = (
+        `Middleware must be composed of functions!`
+        + `\n\tMiddleware Index: ${ix}`
+        + `\n\tMiddleware List: ${stackdebug}`
+      );
+      throw new TypeError(msg);
+    }
   }
 
   /**
