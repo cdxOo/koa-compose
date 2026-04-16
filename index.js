@@ -1,4 +1,8 @@
 'use strict'
+/**
+  * vim: set shiftwidth=2
+  */
+var util = require('util');
 
 /**
  * @param {Array} middleware
@@ -30,8 +34,14 @@ const composeSlim = (middleware) => async (ctx, next) => {
 const compose = (...middleware) => {
   const funcs = middleware.flat()
 
-  for (const fn of funcs) {
-    if (typeof fn !== 'function') throw new TypeError('Middleware must be composed of functions!')
+  for (const [ ix, fn ] of funcs.entries()) {
+    if (typeof fn !== 'function') {
+      let msg = (
+        'Middleware must be composed of functions!'
+        + formatExtraErrorInfo(funcs, ix)
+      )
+      throw new TypeError(msg)
+    }
   }
 
   if (process.env.NODE_ENV === 'production') return composeSlim(funcs)
@@ -46,7 +56,12 @@ const compose = (...middleware) => {
       let nextCalled = false
       let nextResolved = false
       const nextProxy = async () => {
-        if (nextCalled) throw Error('next() called multiple times')
+        if (nextCalled) {
+          throw Error(
+            'next() called multiple times'
+            + formatExtraErrorInfo(funcs, i-1)
+          )
+        }
         nextCalled = true
         try {
           return await dispatch(i + 1)
@@ -64,6 +79,26 @@ const compose = (...middleware) => {
     }
     return dispatch(0)
   }
+}
+
+function formatExtraErrorInfo (middleware, index) {
+  var fn = middleware[index]
+  return (
+    ` {\n\tMiddleware: "${fndebug(fn)}"`
+    + `\n\tMiddleware Index: ${index}`
+    + `\n\tMiddleware List: ${stackdebug(middleware)}`
+    + `\n}`
+  )
+}
+
+function fndebug (fn) {
+  return util.format(fn)
+}
+
+function stackdebug (middleware) {
+  return util.format(
+    [ ...middleware.entries() ].map(([ ix, fn ]) => ({ [ix]: fn }))
+  )
 }
 
 /**
