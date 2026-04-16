@@ -1,7 +1,7 @@
 'use strict'
 
 /* eslint-env jest */
-
+const { describe, it, beforeEach, after } = require('node:test')
 const compose = require('..')
 const assert = require('assert')
 
@@ -13,7 +13,7 @@ function isPromise (x) {
   return x && typeof x.then === 'function'
 }
 
-describe('Koa Compose', function () {
+function testBaseFunctionality () {
   it('should work', async () => {
     const arr = []
     const stack = []
@@ -43,7 +43,7 @@ describe('Koa Compose', function () {
     })
 
     await compose(stack)({})
-    expect(arr).toEqual(expect.arrayContaining([1, 2, 3, 4, 5, 6]))
+    assert.deepStrictEqual(arr.sort(), [1, 2, 3, 4, 5, 6])
   })
 
   it('should be able to be called twice', () => {
@@ -86,16 +86,14 @@ describe('Koa Compose', function () {
     })
   })
 
-  it('should only accept an array', () => {
-    expect(() => compose()).toThrow(TypeError)
-  })
-
   it('should create next functions that return a Promise', function () {
     const stack = []
     const arr = []
     for (let i = 0; i < 5; i++) {
       stack.push((context, next) => {
-        arr.push(next())
+        const result = next()
+        arr.push(result)
+        return result
       })
     }
 
@@ -107,11 +105,21 @@ describe('Koa Compose', function () {
   })
 
   it('should work with 0 middleware', function () {
-    return compose([])({})
+    return Promise.all([
+      compose()({}),
+      compose([])({}),
+      compose([], [])({})
+    ])
   })
 
   it('should only accept middleware as functions', () => {
-    expect(() => compose([{}])).toThrow(TypeError)
+    const badTypes = [1, true, 'string', {}, undefined, Symbol('test')];
+    [...badTypes, []].forEach((badType) => {
+      assert.throws(() => compose([badType]), TypeError)
+    })
+    badTypes.forEach((badType) => {
+      assert.throws(() => compose(badType), TypeError)
+    })
   })
 
   it('should work when yielding at the end of the stack', async () => {
@@ -132,12 +140,10 @@ describe('Koa Compose', function () {
 
     stack.push(() => { throw new Error() })
 
-    return compose(stack)({})
-      .then(() => {
-        throw new Error('promise was not rejected')
-      }, (e) => {
-        expect(e).toBeInstanceOf(Error)
-      })
+    return assert.rejects(
+      compose(stack)({}),
+      /Error/
+    )
   })
 
   it('should keep the context', () => {
@@ -147,17 +153,17 @@ describe('Koa Compose', function () {
 
     stack.push(async (ctx2, next) => {
       await next()
-      expect(ctx2).toEqual(ctx)
+      assert.deepStrictEqual(ctx2, ctx)
     })
 
     stack.push(async (ctx2, next) => {
       await next()
-      expect(ctx2).toEqual(ctx)
+      assert.deepStrictEqual(ctx2, ctx)
     })
 
     stack.push(async (ctx2, next) => {
       await next()
-      expect(ctx2).toEqual(ctx)
+      assert.deepStrictEqual(ctx2, ctx)
     })
 
     return compose(stack)(ctx)
@@ -185,7 +191,7 @@ describe('Koa Compose', function () {
     })
 
     await compose(stack)({})
-    expect(arr).toEqual([1, 6, 4, 2, 3])
+    assert.deepStrictEqual(arr, [1, 6, 4, 2, 3])
   })
 
   it('should compose w/ next', () => {
@@ -205,11 +211,10 @@ describe('Koa Compose', function () {
       throw new Error()
     })
 
-    return compose(stack)({}).then(() => {
-      throw new Error('promise was not rejected')
-    }, (e) => {
-      expect(e).toBeInstanceOf(Error)
-    })
+    return assert.rejects(
+      compose(stack)({}),
+      /Error/
+    )
   })
 
   // https://github.com/koajs/compose/pull/27#issuecomment-143109739
@@ -234,19 +239,6 @@ describe('Koa Compose', function () {
     ])({}).then(() => assert.deepEqual(called, [1, 2, 3]))
   })
 
-  it('should throw if next() is called multiple times', () => {
-    return compose([
-      async (ctx, next) => {
-        await next()
-        await next()
-      }
-    ])({}).then(() => {
-      throw new Error('boom')
-    }, (err) => {
-      assert(/multiple times/.test(err.message))
-    })
-  })
-
   it('should return a valid middleware', () => {
     let val = 0
     return compose([
@@ -265,7 +257,7 @@ describe('Koa Compose', function () {
         return next()
       }
     ])({}).then(function () {
-      expect(val).toEqual(3)
+      assert.strictEqual(val, 3)
     })
   })
 
@@ -274,19 +266,19 @@ describe('Koa Compose', function () {
 
     stack.push(async (context, next) => {
       const val = await next()
-      expect(val).toEqual(2)
+      assert.strictEqual(val, 2)
       return 1
     })
 
     stack.push(async (context, next) => {
       const val = await next()
-      expect(val).toEqual(0)
+      assert.strictEqual(val, 0)
       return 2
     })
 
     const next = () => 0
     return compose(stack)({}, next).then(function (val) {
-      expect(val).toEqual(1)
+      assert.strictEqual(val, 1)
     })
   })
 
@@ -322,7 +314,62 @@ describe('Koa Compose', function () {
       ctx.next++
       return next()
     }).then(() => {
-      expect(ctx).toEqual({ middleware: 1, next: 1 })
+      assert.strictEqual(ctx.middleware, 1)
     })
   })
+}
+
+function testDevErrors () {
+  it('should only accept middleware as functions', () => {
+    assert.throws(() => compose([{}]), TypeError)
+  })
+
+  it('should throw if next() is called multiple times', () => {
+    return compose([
+      async (ctx, next) => {
+        await next()
+        await next()
+      }
+    ])({}).then(() => {
+      throw new Error('boom')
+    }, (err) => {
+      assert(/multiple times/.test(err.message))
+    })
+  })
+
+  it('should detect disconnected promise chains', async () => {
+    const middleware = [
+      (ctx, next) => next(),
+      (ctx, next) => {
+        next()
+      },
+      async (ctx, next) => {
+        await wait(1)
+        return next()
+      }
+    ]
+    await assert.rejects(
+      compose(middleware)({}),
+      /resolved before downstream/
+    )
+  })
+}
+describe('Koa Compose', function () {
+  const OLD_ENV = process.env
+
+  beforeEach(() => {
+    delete require.cache[require.resolve('..')] // Most important - it clears the cache
+    process.env = { ...OLD_ENV, NODE_ENV: 'production' } // Make a copy
+  })
+
+  after(() => {
+    process.env = OLD_ENV // Restore old environment
+  })
+
+  testBaseFunctionality()
+})
+
+describe('Koa Compose - Dev', function () {
+  testBaseFunctionality()
+  testDevErrors()
 })

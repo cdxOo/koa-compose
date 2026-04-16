@@ -2,73 +2,92 @@
 /**
   * vim: set shiftwidth=2
   */
-var util = require('util');
+const util = require('util')
 
 /**
- * Expose compositor.
+ * @param {Array} middleware
+ * @return {Function}
  */
+const composeSlim = (middleware) => async (ctx, next) => {
+  const dispatch = (i) => async () => {
+    const fn = i === middleware.length
+      ? next
+      : middleware[i]
+    if (!fn) return
+    return await fn(ctx, dispatch(i + 1))
+  }
+  return dispatch(0)()
+}
 
-module.exports = compose
+/** @typedef {import("koa").Middleware} Middleware */
 
 /**
  * Compose `middleware` returning
  * a fully valid middleware comprised
  * of all those which are passed.
  *
- * @param {Array} middleware
- * @return {Function}
+ * @param {...(Middleware | Middleware[])} middleware
+ * @return {Middleware}
  * @api public
  */
 
-function compose (middleware) {
-  if (!Array.isArray(middleware)) throw new TypeError('Middleware stack must be an array!')
-  for (const [ ix, fn ] of middleware.entries()) {
+const compose = (...middleware) => {
+  const funcs = middleware.flat()
+
+  for (const [ix, fn] of funcs.entries()) {
     if (typeof fn !== 'function') {
-      var msg = (
-        'Middleware must be composed of functions!'
-        + formatExtraErrorInfo(middleware, ix)
+      const msg = (
+        'Middleware must be composed of functions!' +
+        formatExtraErrorInfo(funcs, ix)
       )
-      throw new TypeError(msg);
+      throw new TypeError(msg)
     }
   }
 
-  /**
-   * @param {Object} context
-   * @return {Promise}
-   * @api public
-   */
+  if (process.env.NODE_ENV === 'production') return composeSlim(funcs)
 
-  return function (context, next) {
-    // last called middleware #
-    let index = -1
-    return dispatch(0)
-    function dispatch (i) {
-      if (i <= index) {
-        return Promise.reject(new Error(
-          'next() called multiple times'
-          + formatExtraErrorInfo(middleware, index-1)
-        ))
+  return async (ctx, next) => {
+    const dispatch = async (i) => {
+      const fn = i === funcs.length
+        ? next
+        : funcs[i]
+      if (!fn) return
+
+      let nextCalled = false
+      let nextResolved = false
+      const nextProxy = async () => {
+        if (nextCalled) {
+          throw Error(
+            'next() called multiple times' +
+            formatExtraErrorInfo(funcs, i - 1)
+          )
+        }
+        nextCalled = true
+        try {
+          return await dispatch(i + 1)
+        } finally {
+          nextResolved = true
+        }
       }
-      index = i
-      let fn = middleware[i]
-      if (i === middleware.length) fn = next
-      if (!fn) return Promise.resolve()
-      try {
-        return Promise.resolve(fn(context, dispatch.bind(null, i + 1)))
-      } catch (err) {
-        return Promise.reject(err)
+      const result = await fn(ctx, nextProxy)
+      if (nextCalled && !nextResolved) {
+        throw Error(
+          'Middleware resolved before downstream.\n\tYou are probably missing an await or return'
+        )
       }
+      return result
     }
+    return dispatch(0)
   }
 }
 
 function formatExtraErrorInfo (middleware, index) {
-  var fn = middleware[index]
+  const fn = middleware[index]
   return (
-    ` {\n\tMiddleware: "${fndebug(fn)}"`
-    + `\n\tMiddleware Index: ${index}`
-    + `\n\tMiddleware List: ${stackdebug(middleware)}`
-    + `\n}`
+    ` {\n\tMiddleware: "${fndebug(fn)}"` +
+    `\n\tMiddleware Index: ${index}` +
+    `\n\tMiddleware List: ${stackdebug(middleware)}` +
+    '\n}'
   )
 }
 
@@ -78,6 +97,18 @@ function fndebug (fn) {
 
 function stackdebug (middleware) {
   return util.format(
-    [ ...middleware.entries() ].map(([ ix, fn ]) => ({ [ix]: fn }))
+    [...middleware.entries()].map(([ix, fn]) => ({ [ix]: fn }))
   )
 }
+
+compose.named = (middleware, name) => {
+    var composition = compose(...middleware)
+    composition._name = name // NOTE: for koajs debug
+    return composition
+}
+
+/**
+ * Expose compositor.
+ */
+
+module.exports = compose
