@@ -101,6 +101,12 @@ function stackdebug (middleware) {
   )
 }
 
+compose.named = (middleware, name) => {
+    var composition = compose(...middleware)
+    composition._name = name // NOTE: for koajs debug
+    return composition
+}
+
 /**
  * Expose compositor.
  */
